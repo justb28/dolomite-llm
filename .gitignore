@@ -1,0 +1,89 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# pyenv
+.python-version
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Pytest/cache
+.pytest_cache/
+
+# Static analysis caches
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite3
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# dotenv and secrets
+.env
+*.env
+
+# Streamlit
+.streamlit/
+
+# Hugging Face / transformers / model caches and index stores
+transformers_cache/
+hf_cache/
+huggingface_cache/
+cache/
+llama_index_storage/
+*.index
+*.idx
+
+# Model artifacts
+models/
+*.bin
+*.ckpt
+
+# Large local data (uncomment if you want to track your data folder)
+data/
+# If you prefer to track files in `data/`, remove the previous line or add more specific rules.
+
+# Coverage
+htmlcov/
+.coverage
