@@ -4,27 +4,28 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
-from llama_index.llms.huggingface_api import HuggingFaceInferenceAPI
+from llama_index.llms.groq import Groq
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.core.settings import Settings 
+from llama_index.core.settings import Settings
 from llama_index.core import StorageContext, load_index_from_storage
-# Free embedding model
+
+# ── API key ───────────────────────────────────────────────────────────────────
+
+groq_api_key = os.environ.get("GROQ_API_KEY")
+if not groq_api_key:
+    raise ValueError("GROQ_API_KEY environment variable not set!")
+
+# ── Models ────────────────────────────────────────────────────────────────────
+
+# Free local embedding model — no API key needed
 Settings.embed_model = HuggingFaceEmbedding(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-hf_token = os.environ.get("HF_TOKEN")
-if not hf_token:
-    raise ValueError("HF_TOKEN environment variable not set!")
-
-llm = HuggingFaceInferenceAPI(
-    model_name="mistralai/Mistral-7B-Instruct-v0.2",
-    token=hf_token,
-    use_auth_token=True  # ensures it uses your API key
+Settings.llm = Groq(
+    model="llama-3.3-70b-versatile",
+    api_key=groq_api_key
 )
-
-# Tell LlamaIndex to use this model
-Settings.llm = llm
 
 Settings.system_prompt = """
 You are a disaster risk analysis assistant.
@@ -39,137 +40,153 @@ Your tasks:
 Base answers only on provided documents.
 """
 
-# load docs and create index
+# ── Index ─────────────────────────────────────────────────────────────────────
+
 if os.path.exists("storage"):
-
-    storage_context = StorageContext.from_defaults(
-        persist_dir="storage"
-    )
-
+    storage_context = StorageContext.from_defaults(persist_dir="storage")
     index = load_index_from_storage(storage_context)
-
 else:
-
     documents = SimpleDirectoryReader("data").load_data()
-
     index = VectorStoreIndex.from_documents(documents)
+    index.storage_context.persist(persist_dir="storage")
 
-    index.storage_context.persist(
-        persist_dir="storage"
-    )
-
-# 4. Create query engine
-query_engine = index.as_query_engine()
+# Groq supports streaming — use streaming for Q&A, blocking for stats
+streaming_query_engine = index.as_query_engine(streaming=True)
+query_engine = index.as_query_engine(streaming=False)
 
 
-# 5. Select analysis mode
+# ── Analysis section ──────────────────────────────────────────────────────────
+
 mode = st.selectbox(
-
     "Select analysis type:",
-
-    [
-        "General Question",
-        "Risk Summary",
-        "Weakness Analysis",
-        "Recommendations"
-    ]
-
+    ["General Question", "Risk Summary", "Weakness Analysis", "Recommendations"]
 )
 
-question = st.text_input(
-    "Ask a question:"
-)
+question = st.text_input("Ask a question:")
 
 if question:
-
     if mode == "Risk Summary":
-
-        prompt = f"""
-        Summarise major disaster risks.
-
-        Question:
-        {question}
-        """
-
+        prompt = f"Summarise major disaster risks.\n\nQuestion:\n{question}"
     elif mode == "Weakness Analysis":
-
-        prompt = f"""
-        Identify weaknesses in disaster management.
-
-        Question:
-        {question}
-        """
-
+        prompt = f"Identify weaknesses in disaster management.\n\nQuestion:\n{question}"
     elif mode == "Recommendations":
-
-        prompt = f"""
-        Provide recommendations.
-
-        Question:
-        {question}
-        """
-
+        prompt = f"Provide recommendations.\n\nQuestion:\n{question}"
     else:
-
         prompt = question
 
-    response = query_engine.query(prompt)
-
-    st.write(response.response)
-st.header("Statistics")
-
-if st.button("Generate Risk Statistics"):
-
-    st.write("Analyzing documents...")
-
-    stats_prompt = """
-Extract disaster risks and count how often they appear.
-
-Return in this format:
-
-Flooding: number
-Infrastructure: number
-Storms: number
-Health: number
-"""
-
-    response = query_engine.query(stats_prompt)
-
-    text = response.response
-
-    st.subheader("Raw Output")
-
-    st.write(text)
+    st.subheader("Response")
+    output_placeholder = st.empty()
+    full_text = ""
 
     try:
+        streaming_response = streaming_query_engine.query(prompt)
+        for token in streaming_response.response_gen:
+            if not token:
+                continue
+            full_text += token
+            output_placeholder.markdown(full_text + "▌")
+        output_placeholder.markdown(full_text)
+    except Exception as e:
+        if not full_text:
+            response = query_engine.query(prompt)
+            full_text = response.response
+            output_placeholder.markdown(full_text)
+        else:
+            output_placeholder.markdown(full_text)
 
-        lines = text.split("\n")
 
-        risks = []
-        values = []
+# ── Statistics section ────────────────────────────────────────────────────────
 
-        for line in lines:
+st.header("Statistics")
 
-            if ":" in line:
+st.markdown(
+    "Ask a counting question about the documents — e.g. "
+    "*How many people identified flooding as a risk?* or "
+    "*How many respondents mentioned poor infrastructure?*"
+)
 
-                name, number = line.split(":")
+stats_question = st.text_input(
+    "Your statistics question:",
+    placeholder="e.g. How many people answered that flooding is a major risk?"
+)
 
-                risks.append(name.strip())
-                values.append(int(number.strip()))
+chart_title = st.text_input(
+    "Chart title (optional):",
+    placeholder="e.g. Respondents by Risk Type"
+)
 
-        df = pd.DataFrame({
-            "Risk": risks,
-            "Count": values
-        })
+if st.button("Generate Statistics"):
+    if not stats_question.strip():
+        st.warning("Please enter a question first.")
+    else:
+        st.write("Analysing documents…")
 
-        st.subheader("Graph")
+        stats_prompt = f"""
+You are analysing questionnaire or interview documents.
 
-        fig, ax = plt.subplots()
+Answer this question by counting occurrences across all documents:
+"{stats_question}"
 
-        ax.bar(df["Risk"], df["Count"])
+Return ONLY the results as a simple list in this exact format (one item per line):
+Label: count
 
-        st.pyplot(fig)
+Rules:
+- "Label" is a short name for each answer/category/group
+- "count" must be a whole number
+- No extra text, no explanation, no bullet points, no headers
+- If you cannot find countable data, return: No data found
 
-    except:
+Example output:
+Flooding: 12
+Infrastructure: 8
+Storms: 5
+"""
 
-        st.write("Could not generate graph")
+        response = query_engine.query(stats_prompt)
+        text = response.response.strip()
+
+        if "no data found" in text.lower():
+            st.info("No countable data found for that question. Try rephrasing.")
+        else:
+            st.subheader("Raw Output")
+            st.write(text)
+
+            try:
+                lines = text.split("\n")
+                labels, values = [], []
+
+                for line in lines:
+                    if ":" in line:
+                        label, number = line.split(":", 1)
+                        label = label.strip()
+                        num_str = number.strip().replace(",", "")
+                        if num_str.isdigit():
+                            labels.append(label)
+                            values.append(int(num_str))
+
+                if labels:
+                    df = pd.DataFrame({"Label": labels, "Count": values})
+
+                    st.subheader("Graph")
+                    fig, ax = plt.subplots(figsize=(8, 4))
+                    bars = ax.bar(df["Label"], df["Count"], color="steelblue")
+
+                    for bar in bars:
+                        ax.text(
+                            bar.get_x() + bar.get_width() / 2,
+                            bar.get_height() + 0.2,
+                            str(int(bar.get_height())),
+                            ha="center", va="bottom", fontsize=10
+                        )
+
+                    ax.set_xlabel("Category")
+                    ax.set_ylabel("Count")
+                    ax.set_title(chart_title if chart_title.strip() else stats_question)
+                    plt.xticks(rotation=30, ha="right")
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                else:
+                    st.write("Could not parse any counts from the output. Try rephrasing your question.")
+
+            except Exception as e:
+                st.write(f"Could not generate graph: {e}")
