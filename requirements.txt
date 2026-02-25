@@ -2,6 +2,7 @@ streamlit
 llama-index
 llama-index-llms-huggingface-api
 llama-index-embeddings-huggingface
+llama-index-llms-groq
 sentence-transformers
 huggingface-hub
 matplotlib
