@@ -11,9 +11,10 @@ from llama_index.core import StorageContext, load_index_from_storage
 
 # ── API key ───────────────────────────────────────────────────────────────────
 
-groq_api_key = os.environ.get("GROQ_API_KEY")
+# Works both locally (env var) and on Streamlit Cloud (st.secrets)
+groq_api_key = os.environ.get("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
 if not groq_api_key:
-    raise ValueError("GROQ_API_KEY environment variable not set!")
+    raise ValueError("GROQ_API_KEY not found. Set it in your environment or Streamlit secrets.")
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -22,10 +23,11 @@ Settings.embed_model = HuggingFaceEmbedding(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-Settings.llm = Groq(
+llm = Groq(
     model="llama-3.3-70b-versatile",
     api_key=groq_api_key
 )
+Settings.llm = llm
 
 Settings.system_prompt = """
 You are a disaster risk analysis assistant.
@@ -51,8 +53,8 @@ else:
     index.storage_context.persist(persist_dir="storage")
 
 # Groq supports streaming — use streaming for Q&A, blocking for stats
-streaming_query_engine = index.as_query_engine(streaming=True)
-query_engine = index.as_query_engine(streaming=False)
+streaming_query_engine = index.as_query_engine(streaming=True, llm=llm)
+query_engine = index.as_query_engine(streaming=False, llm=llm)
 
 
 # ── Analysis section ──────────────────────────────────────────────────────────
@@ -139,8 +141,7 @@ Rules:
 Example output:
 Flooding: 12
 Infrastructure: 8
-Storms: 6
-People: 5
+Storms: 5
 """
 
         response = query_engine.query(stats_prompt)
