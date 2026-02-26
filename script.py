@@ -3,30 +3,40 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from groq import Groq as GroqClient
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
-from llama_index.llms.groq import Groq
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core.settings import Settings
 from llama_index.core import StorageContext, load_index_from_storage
+from llama_index.llms.openai_like import OpenAILike
 
 # ── API key ───────────────────────────────────────────────────────────────────
 
-# Works both locally (env var) and on Streamlit Cloud (st.secrets)
-groq_api_key = os.environ.get("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+try:
+    groq_api_key = st.secrets["GROQ_API_KEY"]
+except Exception:
+    groq_api_key = os.environ.get("GROQ_API_KEY")
+
 if not groq_api_key:
-    raise ValueError("GROQ_API_KEY not found. Set it in your environment or Streamlit secrets.")
+    st.error("GROQ_API_KEY not found. Add it to your Streamlit secrets.")
+    st.stop()
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
-# Free local embedding model — no API key needed
 Settings.embed_model = HuggingFaceEmbedding(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-llm = Groq(
+# Use OpenAILike to point directly at Groq's OpenAI-compatible endpoint
+llm = OpenAILike(
     model="llama-3.3-70b-versatile",
-    api_key=groq_api_key
+    api_base="https://api.groq.com/openai/v1",
+    api_key=groq_api_key,
+    is_chat_model=True,
+    is_function_calling_model=True,
+    context_window=32768,
 )
+
 Settings.llm = llm
 
 Settings.system_prompt = """
@@ -52,7 +62,6 @@ else:
     index = VectorStoreIndex.from_documents(documents)
     index.storage_context.persist(persist_dir="storage")
 
-# Groq supports streaming — use streaming for Q&A, blocking for stats
 streaming_query_engine = index.as_query_engine(streaming=True, llm=llm)
 query_engine = index.as_query_engine(streaming=False, llm=llm)
 
@@ -90,7 +99,8 @@ if question:
         output_placeholder.markdown(full_text)
     except Exception as e:
         if not full_text:
-            response = query_engine.query(prompt)
+            with st.spinner("Analysing…"):
+                response = query_engine.query(prompt)
             full_text = response.response
             output_placeholder.markdown(full_text)
         else:
