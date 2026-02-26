@@ -139,7 +139,8 @@ Rules:
 Example output:
 Flooding: 12
 Infrastructure: 8
-Storms: 5
+Storms: 6
+People: 5
 """
 
         response = query_engine.query(stats_prompt)
